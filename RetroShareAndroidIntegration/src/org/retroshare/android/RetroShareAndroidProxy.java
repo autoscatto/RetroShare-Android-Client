@@ -1,3 +1,26 @@
+/**
+ * @file
+ *
+ * @section Copyright
+ * Copyright (C) 2013 Gioacchino Mazzurco <gio@eigenlab.org>
+ *
+ * @section License
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ *
+ */
+
 package org.retroshare.android;
 
 import android.app.Notification;
@@ -21,13 +44,12 @@ import java.util.Map;
 
 
 /**
- * This class is mean to supersede RsService when will become stable, is the gateway between RetroShare Android Components and RetroShare Java RPC multiple back-ends.
- * Notify RetroShare events interesting for the user ( such as connection status and chat messages ) to the android system
- * And stores as an android file RetroShare servers connection data like hostname, port, user...
+ * This class is the gateway between RetroShare Android Components and RetroShare Java RPC multiple back-ends.
+ * It stores as an android file RetroShare servers connection data (like hostname, port, user) and andle multiple connection to multiple retroshare servers
  */
 public class RetroShareAndroidProxy extends Service implements RsCtrlServiceListener
 {
-	private static final String TAG="RetroShareAndroidProxy";
+	private static final String TAG = "RetroShareAndroidProxy";
 
 	private static final String DataPackBaseFileName = "RetroShareServers";
 
@@ -83,7 +105,10 @@ public class RetroShareAndroidProxy extends Service implements RsCtrlServiceList
 
 		super.onDestroy();
 	}
-	
+
+	@Override
+	public int onStartCommand(Intent intent, int flags, int startId) { return START_STICKY; } // We want this service to continue running until it is explicitly stopped, so return sticky.
+
 	public void saveData()
 	{
 
@@ -179,13 +204,13 @@ public class RetroShareAndroidProxy extends Service implements RsCtrlServiceList
 	}
 
 	/**
-	 * This method del a server to the internal server pack ( server is disconnected before deletion )
-	 * @param serverData the server data
+	 * This method del a server from the internal server pack ( server is disconnected before deletion )
+	 * @param serverName the server name
 	 */
-	public void delServer(RsServerData serverData)
+	public void delServer(String serverName)
 	{
-		_deactivateServer(serverData.name);
-		mDatapack.serverDataMap.remove(serverData);
+		deactivateServer(serverName);
+		mDatapack.serverDataMap.remove(serverName);
 		saveData();
 	}
 
@@ -229,24 +254,32 @@ public class RetroShareAndroidProxy extends Service implements RsCtrlServiceList
 		Log.d(TAG, "_activateServer(" + serverName + ")");
 
 		RsServerData serverData = mDatapack.serverDataMap.get(serverName);
-		if ( serverData != null && serverBunds.get(serverName) == null )
+
+		if ( serverData != null )
 		{
-			Log.d(TAG, "_activateServer(String serverName) activating server");
-			RsCtrlService server = new RsCtrlService(mUiThreadHandler); // TODO This crash when called by a service...
-			server.setServerData(serverData);
-			server.registerListener(this);
-			RsBund bund = new RsBund(server, new NotifyService(server.mRsChatService, this, serverName));
-			serverBunds.put(serverName, bund);
-			server.connect();
+			RsBund bund = serverBunds.get(serverName);
+			if( bund == null)
+			{
+				Log.d(TAG, "_activateServer(String serverName) activating server");
+				RsCtrlService server = new RsCtrlService(mUiThreadHandler); // TODO This crash when called by a service...
+				server.setServerData(serverData);
+				server.registerListener(this);
+				bund = new RsBund(server, new NotifyService(server.mRsChatService, this, serverName));
+				serverBunds.put(serverName, bund);
+			}
+
+			if( ! bund.server.isOnline() ) bund.server.connect();
+
 			Log.d(TAG, "_activateServer(String serverName) server activated");
 		}
+		// TODO else throw new Exception(TAG + " _activateServer(" + serverName + ") Tryed to activate non existent server ");
 	}
 
 	/**
 	 * Deactivate given server if is active
 	 * @param serverName Local RetroShare server name ( to not be confused with hostname )
 	 */
-	private void _deactivateServer(String serverName)
+	public void deactivateServer(String serverName)
 	{
 		RsBund bund = serverBunds.get(serverName);
 		if( bund != null ) _deactivateServer(bund);

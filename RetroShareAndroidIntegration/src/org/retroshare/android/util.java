@@ -1,10 +1,13 @@
 package org.retroshare.android;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 
 
+import android.util.Log;
 import android.widget.EditText;
+import android.widget.Toast;
 
 /*
 import com.google.zxing.WriterException;
@@ -13,24 +16,32 @@ import com.google.zxing.qrcode.encoder.ByteMatrix;
 import com.google.zxing.qrcode.encoder.Encoder;
 import com.google.zxing.qrcode.encoder.QRCode;
 */
-public class util {
+public class util
+{
 	
 	// stolen from the internet
-	public static String byteArrayToHexString(byte[] b) {
-			StringBuffer sb = new StringBuffer(b.length * 2);
-			for (int i = 0; i < b.length; i++) {
-				int v = b[i] & 0xff;
-				if (v < 16) {
-				sb.append('0');
-			}
-		sb.append(Integer.toHexString(v));
+	public static String byteArrayToHexString(byte[] b)
+	{
+		StringBuffer sb = new StringBuffer(b.length * 2);
+		for (int i = 0; i < b.length; i++)
+		{
+			int v = b[i] & 0xff;
+			if (v < 16) sb.append('0');
+			sb.append(Integer.toHexString(v));
 		}
 		return sb.toString().toUpperCase();
 	}
 
-    static boolean hasContent(EditText et) {
-        return (et.getText().toString().trim().length() > 0);
-    }
+    static boolean hasContent(EditText et) { return (et.getText().toString().trim().length() > 0); }
+
+	private static Long dCounter = 0L;
+	public static void uDebug(Context c, String tag, String msg)
+	{
+		Log.d(tag, msg + " <n" + dCounter.toString() + ">" );
+		Toast.makeText(c, tag + " " + msg  + " <n" + dCounter.toString() + ">", Toast.LENGTH_LONG).show();
+
+		++dCounter;
+	}
 
 /*
     static Bitmap encodeQrCode(String contents) throws WriterException {

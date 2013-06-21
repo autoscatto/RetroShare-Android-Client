@@ -2,7 +2,6 @@ package org.retroshare.android;
 
 import android.app.Activity;
 import android.content.ComponentName;
-import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
@@ -18,12 +17,15 @@ import android.util.Log;
  */
 public abstract class ProxiedActivityBase extends Activity implements ServiceConnection
 {
-    private static final String TAG="ProxiedActivityBase";
+    public String TAG() { return "ProxiedActivityBase"; }
 
     protected RetroShareAndroidProxy rsProxy;
-    protected boolean mBound = false;
 
-	public static final String serverNameExtraName = "serverName";
+    private boolean mBound = false;
+	public boolean isBound(){return mBound;}
+	protected void setBound(boolean v) { mBound = v; }
+
+	public static final String SERVER_NAME_EXTRA = "org.retroshare.android.intent_extra_keys.serverName";
 	protected String serverName;
 
 	/**
@@ -45,22 +47,22 @@ public abstract class ProxiedActivityBase extends Activity implements ServiceCon
 	 */
 	protected RsCtrlService getConnectedServer()
 	{
-		Log.d(TAG, "getConnectedServer() -> " + serverName );
+		Log.d(TAG(), "getConnectedServer() -> " + serverName );
 
-		if(mBound) return rsProxy.activateServer(serverName);
+		if(isBound()) return rsProxy.activateServer(serverName);
 
-		Log.wtf(TAG, "getConnectedServer() shouldn't be called before binding");
+		Log.e(TAG(), "getConnectedServer() shouldn't be called before binding");
 		return null;
 	}
 
 	@Override
 	public void onServiceConnected(ComponentName className, IBinder service)
 	{
-		Log.d(TAG, "onServiceConnected(ComponentName className, IBinder service)");
+		Log.d(TAG(), "onServiceConnected(ComponentName className, IBinder service)");
 
 		RetroShareAndroidProxy.RsProxyBinder binder = (RetroShareAndroidProxy.RsProxyBinder) service;
 		rsProxy = binder.getService();
-		mBound = true;
+		setBound(true);
         if(rsProxy.mUiThreadHandler == null) rsProxy.mUiThreadHandler = new RetroShareAndroidProxy.UiThreadHandler();
 		onServiceConnected();
 	}
@@ -68,35 +70,47 @@ public abstract class ProxiedActivityBase extends Activity implements ServiceCon
 	@Override
 	public void onServiceDisconnected(ComponentName arg0)
 	{
-		Log.d(TAG, "onServiceDisconnected(ComponentName arg0)");
-		mBound = false;
+		Log.d(TAG(), "onServiceDisconnected(" + arg0.toShortString() + ")" );
+		setBound(false);
 	}
 
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
         super.onCreate(savedInstanceState);
-		serverName = getIntent().getStringExtra(serverNameExtraName);
+		serverName = getIntent().getStringExtra(SERVER_NAME_EXTRA);
         onCreateBeforeConnectionInit(savedInstanceState);
         _bindRsService();
     }
 
-    @Override
-    public void onDestroy()
-    {
-        _unBindRsService();
-        super.onDestroy();
-    }
+	@Override
+	public void onDestroy()
+	{
+		_unBindRsService();
+		super.onDestroy();
+	}
 
 	private void _bindRsService()
 	{
-		if(mBound) return;
+		Log.d(TAG(), "_bindRsService()");
+
+		if(isBound()) return;
 
 		Intent intent = new Intent(this, RetroShareAndroidProxy.class);
-		bindService(intent, this, Context.BIND_AUTO_CREATE);
+		startService(intent);
+		bindService(intent, this, 0);
 	}
 
-	private void _unBindRsService() { if(mBound) unbindService(this); }
+	private void _unBindRsService()
+	{
+		Log.d(TAG(), "_unBindRsService()");
+
+		if(isBound())
+		{
+			unbindService(this);
+			setBound(false);
+		}
+	}
 
 	/**
 	 * This method launch an activity putting the server name as intent extra data transparently
@@ -120,7 +134,7 @@ public abstract class ProxiedActivityBase extends Activity implements ServiceCon
 	@Override
 	public void startActivity(Intent i)
 	{
-		i.putExtra(serverNameExtraName, serverName);
+		i.putExtra(SERVER_NAME_EXTRA, serverName);
 		super.startActivity(i);
 	}
 }

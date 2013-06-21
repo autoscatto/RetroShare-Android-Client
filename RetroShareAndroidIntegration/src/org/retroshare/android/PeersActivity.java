@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.database.DataSetObserver;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,12 +37,10 @@ public class PeersActivity extends ProxiedActivityBase
 	private PeersListAdapterListener adapter;
 	
     @Override
-    public void onCreate(Bundle savedInstanceState)
+    public void onCreateBeforeConnectionInit(Bundle savedInstanceState)
 	{
-        super.onCreate(savedInstanceState);
-
         adapter=new PeersListAdapterListener(this);
-        ListView lv=new ListView(this);
+        ListView lv = new ListView(this);
         lv.setAdapter(adapter);
         lv.setOnItemClickListener(adapter);
         lv.setOnItemLongClickListener(adapter);
@@ -51,26 +50,29 @@ public class PeersActivity extends ProxiedActivityBase
     @Override
     protected void onServiceConnected()
 	{
-		RsCtrlService server = getConnectedServer();
-		server.mRsPeersService.registerListener(adapter);
-		server.mRsChatService.registerListener(adapter);
-		server.mRsPeersService.updatePeersList();
-    }
+		_registerListeners();
+		getConnectedServer().mRsPeersService.updateFriendsList();
+	}
     
     @Override
     public void onResume()
 	{
     	super.onResume();
-    	if(mBound)
-		{
-			getConnectedServer().mRsPeersService.updatePeersList();
-    		adapter.update();
-    	}
+		_registerListeners();
+		if(isBound()) getConnectedServer().mRsPeersService.updateFriendsList();
     }
+
+	@Override
+	public void onPause()
+	{
+		_unregisterListeners();
+		super.onPause();
+	}
     
     private class PeersListAdapterListener implements ListAdapter, OnItemClickListener, OnItemLongClickListener, PeersServiceListener, ChatServiceListener
 	{
-    	private List<Person> personList = new ArrayList<Person>();
+		private final static String TAG = "PeersListAdapterListener";
+
     	private List<Location> locationList = new ArrayList<Location>();
     	private Map<Location,Person> mapLocationToPerson = new HashMap<Location,Person>();
     	private List<DataSetObserver> observerList = new ArrayList<DataSetObserver>();
@@ -79,30 +81,15 @@ public class PeersActivity extends ProxiedActivityBase
     	
     	public PeersListAdapterListener(Context context) { mInflater = (LayoutInflater) context.getSystemService(Context.LAYOUT_INFLATER_SERVICE); }
     	
-    	public void setData(List<Person> pl)
-		{
-    		personList = pl;
-    		locationList.clear();
-    		mapLocationToPerson.clear();
-    		for(Person p:personList)
-			{
-    			for(Location l:p.getLocationsList())
-				{
-    				locationList.add(l);
-    				mapLocationToPerson.put(l, p);
-    			}
-    		}
-    		for(DataSetObserver obs:observerList) { obs.onChanged(); }
-    	}
-    	
     	@Override
     	public void onItemClick(AdapterView<?> parent, View view, int position, long id)
 		{
     		//Log.v("ChatLobbyListAdapterListener","Clicked on Item No:"+Integer.toString(position));
     		Location loc = locationList.get(position);
-    		
+			String sslId = loc.getSslId();
+
     		Intent i = new Intent(PeersActivity.this,ChatActivity.class);
-    		i.putExtra("ChatId", ChatId.newBuilder().setChatType(ChatType.TYPE_PRIVATE).setChatId(loc.getSslId()).build().toByteArray());
+    		i.putExtra(ChatActivity.CHAT_ID_EXTRA, ChatId.newBuilder().setChatType(ChatType.TYPE_PRIVATE).setChatId(sslId).build().toByteArray());
 			startActivity(ChatActivity.class, i);
     	}
     	
@@ -112,8 +99,8 @@ public class PeersActivity extends ProxiedActivityBase
 			Location loc = locationList.get(position);
 			Person p = mapLocationToPerson.get(loc);
     		Intent i = new Intent(PeersActivity.this,PeerDetailsActivity.class);
-    		i.putExtra("GpgId", p.getGpgId());
-    		i.putExtra("SslId", loc.getSslId());
+    		i.putExtra("GpgId", p.getGpgId()); // TODO HARDCODED string
+    		i.putExtra("SslId", loc.getSslId()); // TODO HARDCODED string
     		startActivity(i);
 			return true;
 		}
@@ -126,16 +113,17 @@ public class PeersActivity extends ProxiedActivityBase
 	        
 	        View view = mInflater.inflate(R.layout.activity_peers_person_item, parent, false);
 	        
-	        ImageView imageViewMessage=(ImageView) view.findViewById(R.id.imageViewMessage);
-	        ImageView imageViewUserState=(ImageView) view.findViewById(R.id.imageViewUserState);
+	        ImageView imageViewMessage   = (ImageView) view.findViewById(R.id.imageViewMessage);
+	        ImageView imageViewUserState = (ImageView) view.findViewById(R.id.imageViewUserState);
 	        TextView textView1 = (TextView) view.findViewById(R.id.textView1);
 	        
-	        ChatId chatId=ChatId.newBuilder().setChatType(ChatType.TYPE_PRIVATE).setChatId(l.getSslId()).build();
+	        ChatId chatId = ChatId.newBuilder().setChatType(ChatType.TYPE_PRIVATE).setChatId(l.getSslId()).build();
 	        Boolean haveNewMessage = getConnectedServer().mRsChatService.getChatChanged().get(chatId);
-	        imageViewMessage.setVisibility(View.GONE);
-	        if( haveNewMessage != null && haveNewMessage.equals(Boolean.TRUE) ) imageViewMessage.setVisibility(View.VISIBLE);
 
-	        if( (l.getState()&Location.StateFlags.CONNECTED_VALUE) == Location.StateFlags.CONNECTED_VALUE)
+	        if( haveNewMessage != null && haveNewMessage.equals(Boolean.TRUE) ) imageViewMessage.setVisibility(View.VISIBLE);
+			else imageViewMessage.setVisibility(View.GONE);
+
+	        if( (l.getState() & Location.StateFlags.CONNECTED_VALUE) == Location.StateFlags.CONNECTED_VALUE)
 			{
 	        	imageViewUserState.setImageResource(R.drawable.ic_contact_color);
 	        	textView1.setTextColor(Color.BLUE);
@@ -162,6 +150,50 @@ public class PeersActivity extends ProxiedActivityBase
 		@Override public void unregisterDataSetObserver(DataSetObserver observer) { observerList.remove(observer); }
 		@Override public boolean areAllItemsEnabled() {return true;}
 		@Override public boolean isEnabled(int position) {return true;}
-		@Override public void update() { setData(getConnectedServer().mRsPeersService.getPeersList()); } // called by RsChatService
+		@Override public void update() // called by RsChatService and RsPeersService
+		{
+			Log.d(TAG, "update()");
+
+			RsPeersService peersService = getConnectedServer().mRsPeersService;
+			peersService.updateFriendsList();
+
+			List<Person> personList = peersService.getPeersList();
+			locationList.clear();
+			mapLocationToPerson.clear();
+			for(Person p : personList)
+			{
+				for(Location l : p.getLocationsList())
+				{
+					locationList.add(l);
+					mapLocationToPerson.put(l, p);
+				}
+			}
+
+			for(DataSetObserver obs : observerList) { obs.onChanged(); }
+		}
     }
+
+	private void _registerListeners()
+	{
+		Log.d(TAG, "_registerListeners()");
+
+		if( ! isBound() ) return;
+
+		Log.d(TAG, "_registerListeners() bound");
+
+		RsCtrlService server = getConnectedServer();
+		server.mRsPeersService.registerListener(adapter);
+		server.mRsChatService.registerListener(adapter);
+	}
+
+	private void _unregisterListeners()
+	{
+		Log.d(TAG, "_unregisterListeners()");
+
+		if( ! isBound() ) return;
+
+		RsCtrlService server = getConnectedServer();
+		server.mRsPeersService.unregisterListener(adapter);
+		server.mRsChatService.unregisterListener(adapter);
+	}
 }
